@@ -1,0 +1,9 @@
+[package]
+name = "nori"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = "0.4"
+uuid = { version = "1.4", features = ["v4"] }
