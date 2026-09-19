@@ -45,7 +45,6 @@ pub fn wait_until_file_ready(path: &Path) -> bool {
 fn can_open_exclusively(path: &Path) -> bool {
     OpenOptions::new()
         .read(true)
-        .write(true)
         .share_mode(0)
         .open(path)
         .is_ok()
