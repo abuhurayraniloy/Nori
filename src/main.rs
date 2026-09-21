@@ -1,5 +1,6 @@
 mod db;
 mod debounce;
+mod extractors;
 mod watcher;
 
 use std::env;

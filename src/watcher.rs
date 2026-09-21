@@ -1,4 +1,5 @@
 use crate::debounce::wait_until_file_ready;
+use crate::extractors::extract_content;
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
@@ -51,6 +52,14 @@ fn handle_event(event: Event, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
                     continue;
                 }
 
+                // Ignore temp or incomplete file
+                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    let ext = ext.to_lowercase();
+                    if ext == "crdownload" || ext == "part" || ext == "tmp" || ext == "download" {
+                        continue;
+                    }
+                }
+
                 let processed = Arc::clone(processed);
 
                 // Check if file is ready and unlocked
@@ -58,6 +67,17 @@ fn handle_event(event: Event, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
                     if wait_until_file_ready(&path) {
                         println!("📂 File detected: {:?}", path);
                         println!("Ready for extraction and renaming!");
+
+                        let document = extract_content(&path);
+
+                        match document {
+                            Ok(doc) => {
+                                println!("Document source: {:?}", doc.source_path);
+                                println!("Text: \n {}", doc.text);
+                                println!("Is truncated: {}", doc.truncated);
+                            }
+                            Err(e) => eprintln!("Could not extract the document, error {:?}", e),
+                        }
                     } else {
                         // Allow later create, modify event to retry
                         processed.lock().unwrap().remove(&path);
