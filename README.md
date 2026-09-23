@@ -1,7 +1,7 @@
 # Nori 🌊
 
 > **The Zero-Cloud, Autonomous Desktop Organizer & Semantic Search Engine.**  
-> *Watches your Downloads folder, reads documents & screenshots locally, categorizes and normalizes filenames, and guarantees a 1-click Undo safety net.*
+> *Watches your folder, reads documents & screenshots locally, categorizes and normalizes filenames, and guarantees a 1-click Undo safety net.*
 
 ---
 
