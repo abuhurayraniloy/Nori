@@ -15,7 +15,7 @@ pub(super) fn extract_pdf(path: &Path) -> Result<ExtractedDocument, ExtractionEr
         });
     }
 
-    let mut document = pdf_extract::Document::load(&path)
+    let mut document = pdf_extract::Document::load(path)
         .map_err(|error| ExtractionError::Pdf(error.to_string()))?;
 
     if document.is_encrypted() {

@@ -76,7 +76,11 @@ fn handle_event(event: Event, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
                                 println!("Text: \n {}", doc.text);
                                 println!("Is truncated: {}", doc.truncated);
                             }
-                            Err(e) => eprintln!("Could not extract the document, error {:?}", e),
+                            Err(e) => {
+                                eprintln!("Could not extract the document, error {:?}", e);
+
+                                processed.lock().unwrap().remove(&path);
+                            }
                         }
                     } else {
                         // Allow later create, modify event to retry

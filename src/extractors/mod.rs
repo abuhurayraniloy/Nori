@@ -4,6 +4,7 @@ use std::{
 };
 
 mod pdf;
+mod ocr;
 
 #[derive(Debug, PartialEq)]
 pub struct ExtractedDocument {
@@ -16,10 +17,10 @@ pub struct ExtractedDocument {
 pub enum ExtractionError {
     Io(io::Error),
     Pdf(String),
+    Ocr(String),
     UnsupportedExtension(String),
     InputTooLarge { actual_bytes: u64, max_bytes: u64 },
     ExtractorPanicked,
-    OcrDeferred,
 }
 
 impl fmt::Display for ExtractionError {
@@ -27,6 +28,7 @@ impl fmt::Display for ExtractionError {
         match self {
             Self::Io(error) => write!(formatter, "I/O error: {error}"),
             Self::Pdf(error) => write!(formatter, "PDF extraction failed: {error}"),
+            Self::Ocr(error) => write!(formatter, "OCR extraction failed: {error}"),
             Self::UnsupportedExtension(error) => {
                 write!(formatter, "Unsupported file extension {error}")
             }
@@ -38,7 +40,6 @@ impl fmt::Display for ExtractionError {
                 "File is too large: {actual_bytes} bytes; maximum is: {max_bytes} bytes"
             ),
             Self::ExtractorPanicked => write!(formatter, "The extractor unexpectedly panicked"),
-            Self::OcrDeferred => write!(formatter, "ImageOCR is not yet available"),
         }
     }
 }
@@ -70,8 +71,7 @@ fn extract_content_inner(path: &Path) -> Result<ExtractedDocument, ExtractionErr
     match extension.as_str() {
         "pdf" => pdf::extract_pdf(path),
 
-        "png" | "jpg" | "jpeg" | "bmp" | "webp" => Err(ExtractionError::OcrDeferred),
-
+        "png" | "jpg" | "jpeg" | "bmp" | "webp" => ocr::extract_image(path),
         other => Err(ExtractionError::UnsupportedExtension(other.to_string())),
     }
 }
