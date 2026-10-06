@@ -10,6 +10,7 @@ uuid = { version = "1.4", features = ["v4"] }
 notify = "6.1"
 pdf-extract = "0.12.1"
 fastembed = "7"
+bytemuck = { version = "1.24", features = ["derive"] }
 
 windows = { version = "0.62", features = [
     "Media_Ocr",

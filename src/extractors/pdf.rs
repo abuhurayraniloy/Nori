@@ -46,15 +46,12 @@ pub(super) fn extract_pdf(path: &Path) -> Result<ExtractedDocument, ExtractionEr
         }
     }
 
-    
-    
     Ok(ExtractedDocument {
         source_path: path.to_path_buf(),
         text,
         truncated,
     })
 }
-
 
 #[test]
 fn print_pdf_content() {
@@ -71,4 +68,3 @@ fn print_pdf_content() {
         }
     }
 }
-

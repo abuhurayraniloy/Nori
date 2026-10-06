@@ -4,9 +4,9 @@ mod debounce;
 #[allow(dead_code)]
 mod extractors;
 // [CHANGE 2] Register the new media module
+mod indexer;
 mod media;
 mod watcher;
-mod indexer;
 
 use std::env;
 // [CHANGE 3] Removed unused `Path` from import

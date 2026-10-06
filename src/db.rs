@@ -29,13 +29,18 @@ pub fn init_db() -> Result<Connection> {
     )?;
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS chunks (
-            id PRIMARY KEY AUTOINCREMENT,
+        "CREATE TABLE IF NOT EXISTS document_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT NOT NULL,
             chunk_index INTEGER NOT NULL,
             chunk_text TEXT NOT NULL,
-            embedding BLOB NOT NULL,
+            embedding BLOB NOT NULL
         )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON document_chunks(file_path)",
         [],
     )?;
 
