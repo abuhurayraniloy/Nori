@@ -1,9 +1,15 @@
 mod db;
 mod debounce;
+// [CHANGE 1] Suppress unused function warnings in extractors while sorting purely by extension
+#[allow(dead_code)]
 mod extractors;
+// [CHANGE 2] Register the new media module
+mod media;
 mod watcher;
+mod indexer;
 
 use std::env;
+// [CHANGE 3] Removed unused `Path` from import
 use std::path::PathBuf;
 
 fn main() {

@@ -83,7 +83,9 @@ pub(super) fn extract_image(path: &Path) -> Result<ExtractedDocument, Extraction
             BitmapPixelFormat::Bgra8,
             BitmapAlphaMode::Premultiplied,
         )
-        .map_err(|e| ExtractionError::Ocr(format!("Pixel format conversion to Bgra8 failed: {e}")))?
+        .map_err(|e| {
+            ExtractionError::Ocr(format!("Pixel format conversion to Bgra8 failed: {e}"))
+        })?
     } else {
         bitmap
     };
@@ -95,8 +97,12 @@ pub(super) fn extract_image(path: &Path) -> Result<ExtractedDocument, Extraction
     let max_dim = OcrEngine::MaxImageDimension()
         .map_err(|e| ExtractionError::Ocr(format!("Failed to query MaxImageDimension: {e}")))?;
 
-    let width = bitmap.PixelWidth().map_err(|e| ExtractionError::Ocr(e.to_string()))? as u32;
-    let height = bitmap.PixelHeight().map_err(|e| ExtractionError::Ocr(e.to_string()))? as u32;
+    let width = bitmap
+        .PixelWidth()
+        .map_err(|e| ExtractionError::Ocr(e.to_string()))? as u32;
+    let height = bitmap
+        .PixelHeight()
+        .map_err(|e| ExtractionError::Ocr(e.to_string()))? as u32;
 
     if width > max_dim || height > max_dim {
         return Err(ExtractionError::Ocr(format!(

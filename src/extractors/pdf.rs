@@ -46,9 +46,29 @@ pub(super) fn extract_pdf(path: &Path) -> Result<ExtractedDocument, ExtractionEr
         }
     }
 
+    
+    
     Ok(ExtractedDocument {
         source_path: path.to_path_buf(),
         text,
         truncated,
     })
 }
+
+
+#[test]
+fn print_pdf_content() {
+    let path = Path::new(r"C:\Users\abuhu\Downloads\Organized\Documents\ticket.pdf");
+
+    // Call extract_content (which has catch_unwind)
+    match super::extract_content(path) {
+        Ok(doc) => {
+            println!("\n=== EXTRACTED PDF TEXT ===\n{}", doc.text);
+        }
+        Err(e) => {
+            // Notice it cleanly catches the crash here!
+            println!("\nGracefully caught failure: {e}");
+        }
+    }
+}
+

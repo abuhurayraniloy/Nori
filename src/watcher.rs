@@ -1,5 +1,6 @@
 use crate::debounce::wait_until_file_ready;
-use crate::extractors::extract_content;
+// [CHANGE 1] Import sorting logic instead of heavy text extractors
+use crate::media::sort_file_by_extension;
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
@@ -8,18 +9,22 @@ use std::sync::{Arc, Mutex, mpsc::channel};
 use std::thread;
 
 pub fn start_watching<P: AsRef<Path>>(watch_path: P) -> notify::Result<()> {
+    let watch_dir = watch_path.as_ref();
+    // [CHANGE 2] Define the destination directory under watch_dir/Organized
+    let output_dir = watch_dir.join("Organized");
+
     // 1. Create communication channel (Receiver and Sender)
     // The OS listener sends events into `tx` and our loop reads them from `rx`
     let (tx, rx) = channel();
 
-    // 2. Initialize the windows filessystem watcher
+    // 2. Initialize the windows filesystem watcher
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
     // 3. Tell windows which folder to monitor
+    watcher.watch(watch_dir, RecursiveMode::NonRecursive)?;
 
-    watcher.watch(watch_path.as_ref(), RecursiveMode::NonRecursive)?;
-
-    println!("👀 Watching directory: {:?}", watch_path.as_ref());
+    println!("👀 Watching directory: {:?}", watch_dir);
+    println!("📁 Output directory: {:?}", output_dir);
     println!("👉 Try downloading or dropping a file there now...\n");
 
     // Track paths to avoid processing duplicate events
@@ -28,7 +33,8 @@ pub fn start_watching<P: AsRef<Path>>(watch_path: P) -> notify::Result<()> {
     // 4. Infinite event listening loop
     for res in rx {
         match res {
-            Ok(event) => handle_event(event, &processed),
+            // [CHANGE 3] Pass output_dir to the event handler
+            Ok(event) => handle_event(event, &output_dir, &processed),
             Err(e) => eprintln!("❌ Watcher error: {:?}", e),
         }
     }
@@ -36,7 +42,7 @@ pub fn start_watching<P: AsRef<Path>>(watch_path: P) -> notify::Result<()> {
     Ok(())
 }
 
-fn handle_event(event: Event, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
+fn handle_event(event: Event, output_dir: &Path, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
     // We only care when file is created or modified.
     match event.kind {
         EventKind::Remove(_) => {
@@ -47,8 +53,11 @@ fn handle_event(event: Event, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
 
         EventKind::Create(_) | EventKind::Modify(_) => {
             for path in event.paths {
-                // Ignore already processed or temp folders
-                if !path.is_file() || !processed.lock().unwrap().insert(path.clone()) {
+                // [CHANGE 4] Ignore files already in Organized, directories, or already-processed files
+                if path.starts_with(output_dir)
+                    || !path.is_file()
+                    || !processed.lock().unwrap().insert(path.clone())
+                {
                     continue;
                 }
 
@@ -61,24 +70,24 @@ fn handle_event(event: Event, processed: &Arc<Mutex<HashSet<PathBuf>>>) {
                 }
 
                 let processed = Arc::clone(processed);
+                let output_dir = output_dir.to_path_buf();
 
                 // Check if file is ready and unlocked
                 thread::spawn(move || {
                     if wait_until_file_ready(&path) {
                         println!("📂 File detected: {:?}", path);
-                        println!("Ready for extraction and renaming!");
 
-                        let document = extract_content(&path);
-
-                        match document {
-                            Ok(doc) => {
-                                println!("Document source: {:?}", doc.source_path);
-                                println!("Text: \n {}", doc.text);
-                                println!("Is truncated: {}", doc.truncated);
+                        // [CHANGE 5] Move file to its extension folder instead of running OCR/PDF extraction
+                        match sort_file_by_extension(&path, &output_dir) {
+                            Ok(dest) => {
+                                println!(
+                                    "📦 Organized: {:?} -> {:?}",
+                                    path.file_name().unwrap_or_default(),
+                                    dest
+                                );
                             }
                             Err(e) => {
-                                eprintln!("Could not extract the document, error {:?}", e);
-
+                                eprintln!("❌ Failed to organize {:?}: {}", path, e);
                                 processed.lock().unwrap().remove(&path);
                             }
                         }

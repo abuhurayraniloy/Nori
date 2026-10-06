@@ -3,8 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-mod pdf;
 mod ocr;
+pub mod pdf;
 
 #[derive(Debug, PartialEq)]
 pub struct ExtractedDocument {

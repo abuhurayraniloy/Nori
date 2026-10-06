@@ -5,5 +5,4 @@
 *.db-wal
 *.db-shm
 graphify-out/
-
-
+.fastembed_cache/
