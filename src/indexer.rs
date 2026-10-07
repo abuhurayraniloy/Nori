@@ -5,6 +5,13 @@ use std::sync::{Arc, Mutex};
 
 use crate::extractors::extract_content;
 
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub file_path: String,
+    pub chunk_text: String,
+    pub score: f32,
+}
+
 pub struct Embedder {
     model: Arc<Mutex<TextEmbedding>>,
 }
@@ -60,11 +67,15 @@ impl Embedder {
         Ok(())
     }
 
-    pub fn index_file(&self, conn: &mut rusqlite::Connection, file_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn index_file(
+        &self,
+        conn: &mut rusqlite::Connection,
+        file_path: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let content = extract_content(file_path)?;
         let text = content.text.trim();
         if text.is_empty() {
-            return Ok(())
+            return Ok(());
         }
 
         let chunks = chunk_by_paragraphs(text, 512);
@@ -72,6 +83,49 @@ impl Embedder {
 
         Self::save_chunks_to_db(conn, file_path, chunks, embedding)?;
         Ok(())
+    }
+
+    pub fn search(
+        &self,
+        conn: &rusqlite::Connection,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        let query_embeddings = self.content_embedding(vec![query.to_string()])?;
+        let query_vec = &query_embeddings[0];
+
+        let mut stmt =
+            conn.prepare("SELECT file_path, chunk_text, embedding FROM document_chunks")?;
+
+        let mut result = Vec::new();
+
+        let rows = stmt.query_map([], |row| {
+            let file_path: String = row.get(0)?;
+            let chunk_text: String = row.get(1)?;
+            let blob: Vec<u8> = row.get(2)?;
+            Ok((file_path, chunk_text, blob))
+        })?;
+
+        for row in rows {
+            let (file_path, chunk_text, blob) = row?;
+            let chunk_vec: &[f32] = bytemuck::cast_slice(&blob);
+            let score = cosine_similarity(query_vec, chunk_vec);
+
+            result.push(SearchResult {
+                file_path,
+                chunk_text,
+                score,
+            });
+        }
+
+        result.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        result.truncate(top_k);
+
+        Ok(result)
     }
 }
 
@@ -123,7 +177,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 
     dot / denom
- }
+}
 
 #[cfg(test)]
 mod tests {
@@ -181,8 +235,8 @@ mod tests {
 
     #[test]
     fn test_index_file_end_to_end() {
-        use std::path::Path;
         use crate::db::init_db;
+        use std::path::Path;
 
         // 1. Connect to our test SQLite database
         let mut conn = init_db().expect("Failed to initialize database");
@@ -195,36 +249,160 @@ mod tests {
 
         // 4. Run the full indexing pipeline!
         println!("\n🚀 Running index_file pipeline...");
-        embedder.index_file(&mut conn, pdf_path).expect("index_file failed");
+        embedder
+            .index_file(&mut conn, pdf_path)
+            .expect("index_file failed");
 
         // 5. Verify data actually landed in SQLite!
         let path_str = pdf_path.to_str().unwrap();
-        
+
         // Count how many chunks were saved
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM document_chunks WHERE file_path = ?1",
-            rusqlite::params![path_str],
-            |row| row.get(0),
-        ).expect("Query failed");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM document_chunks WHERE file_path = ?1",
+                rusqlite::params![path_str],
+                |row| row.get(0),
+            )
+            .expect("Query failed");
 
         println!("✅ Successfully saved {} chunks to SQLite!", count);
         assert!(count > 0, "No chunks were saved to the database!");
 
         // 6. Inspect one saved vector blob from SQLite
-        let (sample_text, sample_blob): (String, Vec<u8>) = conn.query_row(
-            "SELECT chunk_text, embedding FROM document_chunks WHERE file_path = ?1 LIMIT 1",
-            rusqlite::params![path_str],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).expect("Failed to retrieve sample row");
+        let (sample_text, sample_blob): (String, Vec<u8>) = conn
+            .query_row(
+                "SELECT chunk_text, embedding FROM document_chunks WHERE file_path = ?1 LIMIT 1",
+                rusqlite::params![path_str],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("Failed to retrieve sample row");
 
         println!("\n--- Sample Saved Chunk Text ---");
         println!("{}...", &sample_text.chars().take(120).collect::<String>());
 
         println!("\n--- Sample Saved Vector Blob ---");
-        println!("Blob byte length: {} bytes (Expected: 768 * 4 = 3072 bytes)", sample_blob.len());
-        
+        println!(
+            "Blob byte length: {} bytes (Expected: 768 * 4 = 3072 bytes)",
+            sample_blob.len()
+        );
+
         // Verify exact byte size: 768 floats * 4 bytes per float = 3072 bytes
         assert_eq!(sample_blob.len(), 768 * 4);
     }
 
+    #[test]
+    fn test_semantic_search() {
+        use crate::db::init_db;
+
+        let conn = init_db().expect("Failed to connect to database");
+        let embedder = Embedder::new().expect("Failed to initialize embedder");
+
+        // Ask a conceptual question (semantic search!)
+        let query = "machine learning deployment and model evaluation";
+        println!("\n🔍 Searching for: \"{}\"...", query);
+
+        // Search the top 3 matches
+        let results = embedder.search(&conn, query, 3).expect("Search failed");
+
+        println!("==================== SEARCH RESULTS ====================");
+        for (i, res) in results.iter().enumerate() {
+            println!(
+                "\n🏆 Match #{}: Score = {:.2}% ({:.4})",
+                i + 1,
+                res.score * 100.0,
+                res.score
+            );
+            println!("📁 File: {}", res.file_path);
+            println!("📝 Snippet:\n{}", res.chunk_text.trim());
+            println!("--------------------------------------------------------");
+        }
+        println!("========================================================\n");
+
+        assert!(
+            !results.is_empty(),
+            "Search should return at least one result"
+        );
+        assert!(results[0].score > 0.0, "Top score should be positive");
+    }
+
+    #[test]
+    fn benchmark_search_latency() {
+        use crate::db::init_db;
+        use std::time::Instant;
+
+        let conn = init_db().expect("Failed to connect to database");
+        let embedder = Embedder::new().expect("Failed to initialize embedder");
+
+        let query = "machine learning deployment and model evaluation";
+        let top_k = 3;
+
+        // --- Phase 1: Measure Query Embedding Time ---
+        let start_embed = Instant::now();
+        let query_embeddings = embedder
+            .content_embedding(vec![query.to_string()])
+            .expect("Embedding query failed");
+        let query_vec = &query_embeddings[0];
+        let embed_duration = start_embed.elapsed();
+
+        // --- Phase 2: Measure SQLite Scan + Cosine Math (Running 100 times for accurate average) ---
+        let iterations = 100;
+        let mut total_scan_chunks = 0;
+
+        let start_scan = Instant::now();
+        for _ in 0..iterations {
+            let mut stmt = conn
+                .prepare("SELECT file_path, chunk_text, embedding FROM document_chunks")
+                .unwrap();
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                    ))
+                })
+                .unwrap();
+
+            let mut results = Vec::new();
+            for row in rows {
+                let (file_path, chunk_text, blob) = row.unwrap();
+                let chunk_vec: &[f32] = bytemuck::cast_slice(&blob);
+                let score = cosine_similarity(query_vec, chunk_vec);
+                results.push((file_path, chunk_text, score));
+            }
+            total_scan_chunks = results.len();
+
+            results.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+            results.truncate(top_k);
+        }
+        let scan_duration = start_scan.elapsed() / iterations;
+
+        let total_search_time = embed_duration + scan_duration;
+
+        println!("\n================== SEARCH LATENCY REPORT ==================");
+        println!("Total chunks scanned in SQLite: {}", total_scan_chunks);
+        println!("-----------------------------------------------------------");
+        println!(
+            "Phase 1: Query Embedding (FastEmbed neural net): {:?} ({:.2} ms)",
+            embed_duration,
+            embed_duration.as_micros() as f64 / 1000.0
+        );
+        println!(
+            "Phase 2: Database Scan + Cosine Math (SQLite -> RAM): {:?} ({:.2} ms)",
+            scan_duration,
+            scan_duration.as_micros() as f64 / 1000.0
+        );
+        println!("-----------------------------------------------------------");
+        println!(
+            "⚡ TOTAL SEARCH LATENCY:                          {:?} ({:.2} ms)",
+            total_search_time,
+            total_search_time.as_micros() as f64 / 1000.0
+        );
+        println!("===========================================================\n");
+
+        assert!(
+            total_scan_chunks > 0,
+            "No chunks found in database to benchmark!"
+        );
+    }
 }

@@ -1,4 +1,6 @@
+use crate::db;
 use crate::debounce::wait_until_file_ready;
+use crate::indexer::Embedder;
 // [CHANGE 1] Import sorting logic instead of heavy text extractors
 use crate::media::sort_file_by_extension;
 
@@ -85,6 +87,23 @@ fn handle_event(event: Event, output_dir: &Path, processed: &Arc<Mutex<HashSet<P
                                     path.file_name().unwrap_or_default(),
                                     dest
                                 );
+                                let destination = dest.clone();
+                                std::thread::spawn(move || {
+                                    if let Ok(embedder) = Embedder::new() {
+                                        if let Ok(mut conn) = db::init_db() {
+                                            match embedder.index_file(&mut conn, &destination) {
+                                                Ok(()) => println!(
+                                                    "⚡ [Indexed for Search]: {:?}",
+                                                    destination.file_name().unwrap_or_default()
+                                                ),
+                                                Err(e) => eprintln!(
+                                                    "⚠️ Indexing failed for {:?}: {e}",
+                                                    destination.file_name().unwrap_or_default()
+                                                ),
+                                            }
+                                        }
+                                    }
+                                });
                             }
                             Err(e) => {
                                 eprintln!("❌ Failed to organize {:?}: {}", path, e);
