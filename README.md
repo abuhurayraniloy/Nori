@@ -16,7 +16,7 @@
 
 Downloads folders inevitably become digital landfills of cryptic filenames like `inv_091823(1).pdf`, unstamped screenshots (`Screenshot 2026-03-14.png`), and forgotten installation packages. Cloud-based organizing tools compromise privacy by uploading personal invoices, tax documents, and medical receipts to external servers.
 
-**Nori** is an ultra-fast, local-first background daemon written in Rust. It quietly monitors your drop folders, waits for downloads to physically complete without freezing on lock-contentions, extracts text from documents and screenshots using native Windows APIs, organizes files cleanly, and provides an instant `Alt + Space` Spotlight launcher with hybrid full-text and semantic search.
+**Nori** is an ultra-fast, local-first background daemon written in Rust. It quietly monitors your drop folders, waits for downloads to physically complete without freezing on lock-contentions, extracts text from documents and screenshots using native Windows APIs, organizes files cleanly, and provides an instant semantic search engine running sub-20ms queries with zero cloud calls.
 
 ---
 
@@ -31,7 +31,10 @@ Downloads folders inevitably become digital landfills of cryptic filenames like 
   - Multi-sample size stability observation ensures the transfer has finished growing.
   - Windows-native `share_mode(0)` (`FILE_SHARE_NONE`) verification guarantees the writing process (Chrome, Edge, Explorer) has released all OS file handles.
 - **🧵 Non-Blocking Concurrency:** The primary filesystem event loop runs on sub-millisecond execution times, dispatching file stabilization and parsing tasks to background workers while preventing duplicate concurrent processing with an `Arc<Mutex<HashSet<PathBuf>>>` registry.
-- **🔍 Hybrid Instant Memory (FTS5 + ONNX Vectors):** Combines SQLite Porter-stemmed FTS5 lexical search with lightweight local vector embeddings (`fastembed`) for conceptual document discovery.
+- **🔍 Instant Semantic Vector Search:**
+  - Employs local ONNX embedding models via `fastembed` (`SnowflakeArcticEmbedM` with 768 dimensions).
+  - Uses zero-copy binary serialization with `bytemuck` to store raw `BLOB` vectors in SQLite.
+  - Performs sub-20ms cosine similarity scans directly on CPU SIMD instructions.
 
 ---
 
@@ -51,27 +54,27 @@ flowchart TD
         F --> G["Observe Size Stability (debounce.rs)"]
         G --> H{"Stable size & share_mode(0) lock free?"}
         H -- No / Timed out --> I["Release from In-Flight Set (Allow Retry)"]
-        H -- Yes --> J["Multi-Modal Extraction Router (extractors/)"]
+        H -- Yes --> J["Extension Sorter & Multi-Modal Router"]
     end
 
-    subgraph S3 ["3. Extraction & Categorization"]
-        J --> K1["PDF Extractor (extractors/pdf.rs)"]
-        J --> K2["Windows Media OCR (extractors/ocr.rs)"]
-        J --> K3["Plain Text Reader"]
-        K1 & K2 & K3 --> L["ExtractedDocument (Text & Metadata)"]
-        L --> M["Rule-Based Classifier (Invoices, Receipts, Taxes, School)"]
+    subgraph S3 ["3. Organization & Text Extraction"]
+        J --> K["Relocate File to Organized/<Category>/"]
+        K --> L{"Is Text Extractable?"}
+        L -- PDF --> M1["PDF Extractor (extractors/pdf.rs)"]
+        L -- Images --> M2["Windows Media OCR (extractors/ocr.rs)"]
+        M1 & M2 --> N["Paragraph Chunker (512 char windows)"]
     end
 
-    subgraph S4 ["4. Safe Organization & Storage"]
-        M --> N["Filename Normalizer (YYYY-MM-DD_Vendor_Title.ext)"]
-        N --> O["Atomic File Relocation"]
-        O --> P["Record Transaction into SQLite Ledger"]
-        P --> Q["Index Content into SQLite FTS5 & Vector Store"]
+    subgraph S4 ["4. Vector Embeddings & Storage"]
+        N --> O["SnowflakeArcticEmbedM (fastembed)"]
+        O --> P["Zero-Copy bytemuck Serialization"]
+        P --> Q["Atomic Batch Insert into SQLite document_chunks"]
     end
 
-    subgraph S5 ["5. Interface & Recovery"]
-        P -.-> R["1-Click Undo / Rollback"]
-        Q -.-> S["Spotlight Launcher (Alt + Space)"]
+    subgraph S5 ["5. User Interface & Search"]
+        R["User Query: cargo run -- search <query>"] --> S["Vectorize Query Text"]
+        S --> T["Cosine Similarity Scan (SQLite BLOBs)"]
+        T --> U["Ranked Top-K Snippets & File Paths (< 20ms)"]
     end
 ```
 
@@ -88,17 +91,19 @@ This project follows an anti-burnout granular implementation structure:
 
 ### Phase 2: The Multi-Modal Eyes
 - [x] **Task 2.1: PDF Header & Text Extractor** — Memory-bounded PDF reader with password handling, page limits, and panic containment (`extractors/pdf.rs`).
-- [ ] **Task 2.2: Native Windows Media OCR** — Zero-cloud image text extraction using native `Windows.Media.Ocr` (`extractors/ocr.rs`).
+- [x] **Task 2.2: Native Windows Media OCR** — Zero-cloud image text extraction using native `Windows.Media.Ocr` (`extractors/ocr.rs`).
 - [x] **Task 2.3: Multi-Modal Extraction Router** — Unified dispatcher (`extractors/mod.rs`) mapping file formats to appropriate extractors.
 
 ### Phase 3: The Smart Janitor & Safety Net
-- [ ] **Task 3.1: Rule-Based Classifier** — High-confidence keyword matching for Invoices, Receipts, Taxes, School, and General files.
+- [x] **Task 3.1: Extension-Based Media Categorizer** — Clean relocation into `Documents`, `Images`, `Audio`, `Video`, `Archives`, `Installers`, `Code`, and `Other` (`media.rs`).
 - [ ] **Task 3.2: Normalized Filename Builder** — Automated naming convention (`YYYY-MM-DD_<Vendor>_<Title>.<ext>`) with Windows path sanitization.
 - [ ] **Task 3.3: Safe Mover & 1-Click Undo Ledger** — Atomic filesystem relocation with rollback tracking.
 
 ### Phase 4: Instant Search & Memory
-- [ ] **Task 4.1: SQLite FTS5 Full-Text Indexing** — Sub-10ms keyword search with highlighted snippets.
-- [ ] **Task 4.2: Semantic Similarity Reranking** — Local 384-dimensional vector embeddings with cosine reranking using `fastembed`.
+- [x] **Task 4.1: Paragraph Chunking Engine** — Semantic paragraph-boundary text segmentation with zero word slicing.
+- [x] **Task 4.2: Local ONNX Vector Embeddings** — `SnowflakeArcticEmbedM` local model generating 768-dimensional vectors via `fastembed`.
+- [x] **Task 4.3: Binary Vector SQLite Storage** — Zero-copy `bytemuck` slice casting with single-transaction prepared statements and B-Tree indexing.
+- [x] **Task 4.4: Sub-20ms Semantic Search** — High-performance cosine similarity ranking directly over SQLite `BLOB` records.
 
 ### Phase 5: The Sleek Desktop Shell
 - [ ] **Task 5.1: Tauri v2 System Tray** — Minimalist system tray daemon with quick actions.
@@ -115,14 +120,16 @@ nori/
 ├── README.md                # Project documentation & architectural specification
 ├── nori.db                  # Local SQLite database (git-ignored)
 └── src/
-    ├── main.rs              # App bootstrap & directory discovery
+    ├── main.rs              # CLI command router (watch / search) & app bootstrap
     ├── watcher.rs           # Filesystem event loop & background task dispatcher
     ├── debounce.rs          # Quiescence polling, share_mode checks & unit tests
-    ├── db.rs                # SQLite schema setup and migrations
+    ├── media.rs             # Extension categorization & collision-safe destinations
+    ├── indexer.rs           # Paragraph chunker, FastEmbed ONNX engine & semantic search
+    ├── db.rs                # SQLite schema setup, document_chunks table & test helper
     └── extractors/          # Multi-modal extraction engine
         ├── mod.rs           # Extractor router, error taxonomy & safety guards
         ├── pdf.rs           # PDF text extractor with panic isolation
-        └── ocr.rs           # (Planned) Native Windows Media OCR engine
+        └── ocr.rs           # Native Windows Media OCR engine (WinRT)
 ```
 
 ---
@@ -130,6 +137,17 @@ nori/
 ## 🗄️ Database Schema
 
 Nori relies on embedded SQLite to ensure persistent, verifiable state:
+
+### Table: `document_chunks`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` | Unique chunk record ID |
+| `file_path` | `TEXT` | `NOT NULL` | Absolute target file path |
+| `chunk_index` | `INTEGER` | `NOT NULL` | Chronological paragraph order |
+| `chunk_text` | `TEXT` | `NOT NULL` | Extracted human-readable paragraph text |
+| `embedding` | `BLOB` | `NOT NULL` | 3,072-byte raw binary vector (768 32-bit floats) |
+
+*Indexed on `file_path` via `idx_chunks_file_path` for instant idempotent updates.*
 
 ### Table: `files`
 | Column | Type | Constraints | Description |
@@ -167,18 +185,27 @@ Nori relies on embedded SQLite to ensure persistent, verifiable state:
    cd nori
    ```
 
-2. **Run tests:**
+2. **Run tests & benchmarks:**
    ```powershell
+   # Run all unit tests
    cargo test
+
+   # Run semantic search benchmark with release SIMD optimizations
+   cargo test benchmark_search_latency --release -- --nocapture
    ```
 
-3. **Launch the development watcher:**
+3. **Start the background file organizer & watcher:**
    ```powershell
-   cargo run
+   cargo run -- watch
    ```
-   *Drop a PDF or file into your `Downloads` directory to see the detection and extraction pipeline in real time.*
+   *Any file or PDF dropped into `Downloads/` will be organized into `Organized/` and automatically indexed in the background.*
 
-4. **Build release binary:**
+4. **Search your documents by concept/meaning (Semantic Search):**
+   ```powershell
+   cargo run -- search "machine learning deployment and model evaluation"
+   ```
+
+5. **Build release binary:**
    ```powershell
    cargo build --release
    ```
