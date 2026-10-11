@@ -7,6 +7,7 @@ use crate::extractors::extract_content;
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {
+    pub id: i64,
     pub file_path: String,
     pub chunk_text: String,
     pub score: f32,
@@ -18,9 +19,9 @@ pub struct Embedder {
 
 impl Embedder {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let options = TextInitOptions::new(EmbeddingModel::SnowflakeArcticEmbedM)
+        let options = TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
             .with_show_download_progress(true)
-            .with_max_length(512)
+            .with_max_length(300)
             .with_intra_threads(4);
 
         let model = Arc::new(Mutex::new(TextEmbedding::try_new(options)?));
@@ -52,14 +53,28 @@ impl Embedder {
             params![path_str],
         )?;
 
+        tx.execute(
+            "DELETE FROM chunks_fts
+            WHERE file_path = ?1",
+            params![path_str],
+        )?;
+
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO document_chunks (file_path, chunk_index, chunk_text, embedding) VALUES (?1, ?2, ?3, ?4)"
             )?;
 
+            let mut stmt_fts = tx.prepare(
+                "INSERT INTO chunks_fts (chunk_id, file_path, chunk_text) VALUES (?1, ?2, ?3)",
+            )?;
+
             for (idx, (chunk, vector)) in chunks.into_iter().zip(embeddings).enumerate() {
                 let vector_bytes: &[u8] = bytemuck::cast_slice(&vector);
                 stmt.execute(params![path_str, idx as i64, chunk, vector_bytes])?;
+
+                let chunk_id = tx.last_insert_rowid();
+
+                stmt_fts.execute(params![chunk_id, path_str, chunk])?;
             }
         }
 
@@ -85,47 +100,142 @@ impl Embedder {
         Ok(())
     }
 
-    pub fn search(
+    pub fn lexical_search(
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(i64, String, String)>, Box<dyn std::error::Error>> {
+        let sanitized = sanitize_fts5_query(query);
+        if sanitized.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT chunk_id, file_path, chunk_text \
+            FROM chunks_fts \
+            WHERE chunks_fts MATCH ?1 \
+            ORDER BY rank \
+            LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![sanitized, limit as i64], |row| {
+            let chunk_id: i64 = row.get(0)?;
+            let file_path: String = row.get(1)?;
+            let chunk_text: String = row.get(2)?;
+            Ok((chunk_id, file_path, chunk_text))
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn vector_search(
         &self,
         conn: &rusqlite::Connection,
         query: &str,
-        top_k: usize,
-    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        limit: usize,
+    ) -> Result<Vec<(i64, String, String, f32)>, Box<dyn std::error::Error>> {
         let query_embeddings = self.content_embedding(vec![query.to_string()])?;
         let query_vec = &query_embeddings[0];
 
         let mut stmt =
-            conn.prepare("SELECT file_path, chunk_text, embedding FROM document_chunks")?;
+            conn.prepare("SELECT id, file_path, chunk_text, embedding FROM document_chunks")?;
 
         let mut result = Vec::new();
 
         let rows = stmt.query_map([], |row| {
-            let file_path: String = row.get(0)?;
-            let chunk_text: String = row.get(1)?;
-            let blob: Vec<u8> = row.get(2)?;
-            Ok((file_path, chunk_text, blob))
+            let id: i64 = row.get(0)?;
+            let file_path: String = row.get(1)?;
+            let chunk_text: String = row.get(2)?;
+            let blob: Vec<u8> = row.get(3)?;
+            Ok((id, file_path, chunk_text, blob))
         })?;
 
         for row in rows {
-            let (file_path, chunk_text, blob) = row?;
+            let (id, file_path, chunk_text, blob) = row?;
             let chunk_vec: &[f32] = bytemuck::cast_slice(&blob);
             let score = cosine_similarity(query_vec, chunk_vec);
 
-            result.push(SearchResult {
-                file_path,
-                chunk_text,
-                score,
-            });
+            result.push((id, file_path, chunk_text, score));
         }
 
-        result.sort_by(|a, b| {
+        result.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+        result.truncate(limit);
+
+        Ok(result)
+    }
+
+    pub fn search(
+        &self,
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        const RRF_K: f32 = 60.0;
+        const CANDIDATE_POOL: usize = 40;
+
+        let lexical_candidates = Self::lexical_search(conn, query, CANDIDATE_POOL)?;
+        let vector_candidates = self.vector_search(conn, query, CANDIDATE_POOL)?;
+
+        let mut rrf_map: std::collections::HashMap<i64, (String, String, f32)> =
+            std::collections::HashMap::new();
+
+        // Accumulate lexical ranks
+        for (rank_idx, (chunk_id, file_path, chunk_text)) in
+            lexical_candidates.into_iter().enumerate()
+        {
+            let rank = (rank_idx + 1) as f32;
+            let score: f32 = 1.0 / (RRF_K + rank);
+
+            let entry = rrf_map
+                .entry(chunk_id)
+                .or_insert((file_path, chunk_text, 0.0));
+            entry.2 += score;
+        }
+
+        // Accumulate vector ranks
+        for (rank_idx, (chunk_id, file_path, chunk_text, _cos_score)) in
+            vector_candidates.into_iter().enumerate()
+        {
+            let rank = (rank_idx + 1) as f32;
+            let score = 1.0 / (RRF_K + rank);
+
+            let entry = rrf_map
+                .entry(chunk_id)
+                .or_insert((file_path, chunk_text, 0.0));
+            entry.2 += score;
+        }
+
+        if rrf_map.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let max_possible_rrf = (1.0 / (RRF_K + 1.0)) * 2.0;
+
+        let mut results: Vec<SearchResult> = rrf_map
+            .into_iter()
+            .map(|(id, (file_path, chunk_text, rrf_score))| {
+                let normalized_score = (rrf_score / max_possible_rrf).min(1.0);
+                SearchResult {
+                    id,
+                    file_path,
+                    chunk_text,
+                    score: normalized_score,
+                }
+            })
+            .collect();
+
+        results.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        result.truncate(top_k);
+        results.truncate(limit);
 
-        Ok(result)
+        Ok(results)
     }
 }
 
@@ -177,6 +287,25 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 
     dot / denom
+}
+
+pub fn sanitize_fts5_query(query: &str) -> String {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_')
+                .collect::<String>()
+        })
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{}\"", w))
+        .collect();
+
+    if terms.is_empty() {
+        String::new()
+    } else {
+        terms.join(" OR ")
+    }
 }
 
 #[cfg(test)]

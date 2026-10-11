@@ -2,7 +2,7 @@ use super::{ExtractedDocument, ExtractionError};
 use std::path::Path;
 
 const MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
-const MAX_PDF_PAGES: usize = 10;
+const MAX_PDF_PAGES: usize = 10000;
 
 pub(super) fn extract_pdf(path: &Path) -> Result<ExtractedDocument, ExtractionError> {
     let metadata = path.metadata()?;

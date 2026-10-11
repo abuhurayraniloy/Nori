@@ -32,7 +32,7 @@ Downloads folders inevitably become digital landfills of cryptic filenames like 
   - Windows-native `share_mode(0)` (`FILE_SHARE_NONE`) verification guarantees the writing process (Chrome, Edge, Explorer) has released all OS file handles.
 - **🧵 Non-Blocking Concurrency:** The primary filesystem event loop runs on sub-millisecond execution times, dispatching file stabilization and parsing tasks to background workers while preventing duplicate concurrent processing with an `Arc<Mutex<HashSet<PathBuf>>>` registry.
 - **🔍 Instant Semantic Vector Search:**
-  - Employs local ONNX embedding models via `fastembed` (`SnowflakeArcticEmbedM` with 768 dimensions).
+  - Employs local ONNX embedding models via `fastembed` (`AllMiniLML6V2` with 768 dimensions).
   - Uses zero-copy binary serialization with `bytemuck` to store raw `BLOB` vectors in SQLite.
   - Performs sub-20ms cosine similarity scans directly on CPU SIMD instructions.
 
@@ -66,7 +66,7 @@ flowchart TD
     end
 
     subgraph S4 ["4. Vector Embeddings & Storage"]
-        N --> O["SnowflakeArcticEmbedM (fastembed)"]
+        N --> O["AllMiniLML6V2 (fastembed)"]
         O --> P["Zero-Copy bytemuck Serialization"]
         P --> Q["Atomic Batch Insert into SQLite document_chunks"]
     end
@@ -101,7 +101,7 @@ This project follows an anti-burnout granular implementation structure:
 
 ### Phase 4: Instant Search & Memory
 - [x] **Task 4.1: Paragraph Chunking Engine** — Semantic paragraph-boundary text segmentation with zero word slicing.
-- [x] **Task 4.2: Local ONNX Vector Embeddings** — `SnowflakeArcticEmbedM` local model generating 768-dimensional vectors via `fastembed`.
+- [x] **Task 4.2: Local ONNX Vector Embeddings** — `AllMiniLML6V2` local model generating 768-dimensional vectors via `fastembed`.
 - [x] **Task 4.3: Binary Vector SQLite Storage** — Zero-copy `bytemuck` slice casting with single-transaction prepared statements and B-Tree indexing.
 - [x] **Task 4.4: Sub-20ms Semantic Search** — High-performance cosine similarity ranking directly over SQLite `BLOB` records.
 

@@ -75,6 +75,59 @@ fn main() {
             }
         }
 
+        Some("list") => {
+            let conn = db::init_db().expect("failed to connect to db");
+            let mut stmt = conn
+                .prepare("SELECT id, file_path, COUNT(*) FROM document_chunks GROUP BY file_path")
+                .expect("Query preparation failed");
+
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .expect("Query Failed");
+
+            for row in rows {
+                let (id, path, count) = row.unwrap();
+                println!("id:{} -> {} ({} chunks)", id, path, count);
+            }
+        }
+
+        Some("delete") => {
+            let id_str = match args.get(2) {
+                Some(val) => val,
+                None => {
+                    eprintln!("Usage: cargo run -- delete <id>");
+                    return;
+                }
+            };
+
+            let id: i64 = match id_str.parse() {
+                Ok(num) => num,
+                Err(_) => {
+                    eprintln!("Error: ID must be a valid number. Got: `{}`", id_str);
+                    return;
+                }
+            };
+            let conn = db::init_db().expect("failed to connect to the db");
+            let rows_deleted = conn
+                .execute(
+                    "DELETE FROM document_chunks WHERE id = ?1",
+                    rusqlite::params![id],
+                )
+                .expect("Failed to delete");
+
+            if rows_deleted > 0 {
+                println!("Deleted!");
+            } else {
+                println!("No chunks deleted")
+            }
+        }
+
         Some(other) => {
             eprintln!("Unknown command: \"{}\"", other);
             println!("Available commands:");

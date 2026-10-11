@@ -44,5 +44,16 @@ pub fn init_db() -> Result<Connection> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
+         USING fts5(
+             chunk_id UNINDEXED,
+             file_path UNINDEXED,
+             chunk_text,
+             tokenize = 'porter unicode61'
+         )",
+        [],
+    )?;
+
     Ok(conn)
 }
