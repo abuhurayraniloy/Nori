@@ -21,6 +21,8 @@ pub fn start_watching<P: AsRef<Path>>(watch_path: P) -> notify::Result<()> {
     // Dedicated channel for background indexing worker
     let (index_tx, index_rx) = channel::<PathBuf>();
 
+    let (intake_tx, intake_rx) = channel::<PathBuf>();
+
     // 2. Initialize the windows filesystem watcher
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
@@ -31,8 +33,38 @@ pub fn start_watching<P: AsRef<Path>>(watch_path: P) -> notify::Result<()> {
     println!("📁 Output directory: {:?}", output_dir);
     println!("👉 Try downloading or dropping a file there now...\n");
 
+    let output_dir_clone = output_dir.clone();
     // Track paths to avoid processing duplicate events
     let processed = Arc::new(Mutex::new(HashSet::<PathBuf>::new()));
+    let processed_clone = processed.clone();
+    let index_tx_intake = index_tx.clone();
+
+    thread::spawn(move || {
+        println!("📦 Intake worker ready.");
+
+        while let Ok(path) = intake_rx.recv() {
+            if wait_until_file_ready(&path) {
+                println!("📂 File detected: {:?}", path);
+
+                match sort_file_by_extension(&path, &output_dir_clone) {
+                    Ok(dest) => {
+                        println!(
+                            "📦 Organized: {:?} -> {:?}",
+                            path.file_name().unwrap_or_default(),
+                            dest
+                        );
+                        let _ = index_tx_intake.send(dest);
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to organize {:?}: {}", path, e);
+                        processed_clone.lock().unwrap().remove(&path);
+                    }
+                }
+            } else {
+                processed_clone.lock().unwrap().remove(&path);
+            }
+        }
+    });
 
     // Spawn single background indexing worker
     thread::spawn(move || {
@@ -72,7 +104,7 @@ pub fn start_watching<P: AsRef<Path>>(watch_path: P) -> notify::Result<()> {
     for res in rx {
         match res {
             // [CHANGE 3] Pass output_dir and index_tx to the event handler
-            Ok(event) => handle_event(event, &output_dir, &processed, &index_tx),
+            Ok(event) => handle_event(event, &output_dir, &processed, &intake_tx),
             Err(e) => eprintln!("❌ Watcher error: {:?}", e),
         }
     }
@@ -84,7 +116,7 @@ fn handle_event(
     event: Event,
     output_dir: &Path,
     processed: &Arc<Mutex<HashSet<PathBuf>>>,
-    index_tx: &std::sync::mpsc::Sender<PathBuf>,
+    intake_tx: &std::sync::mpsc::Sender<PathBuf>,
 ) {
     // We only care when file is created or modified.
     match event.kind {
@@ -112,35 +144,7 @@ fn handle_event(
                     }
                 }
 
-                let processed = Arc::clone(processed);
-                let output_dir = output_dir.to_path_buf();
-                let index_tx = index_tx.clone();
-
-                // Check if file is ready and unlocked
-                thread::spawn(move || {
-                    if wait_until_file_ready(&path) {
-                        println!("📂 File detected: {:?}", path);
-
-                        // [CHANGE 5] Move file to its extension folder instead of running OCR/PDF extraction
-                        match sort_file_by_extension(&path, &output_dir) {
-                            Ok(dest) => {
-                                println!(
-                                    "📦 Organized: {:?} -> {:?}",
-                                    path.file_name().unwrap_or_default(),
-                                    dest
-                                );
-                                let _ = index_tx.send(dest);
-                            }
-                            Err(e) => {
-                                eprintln!("❌ Failed to organize {:?}: {}", path, e);
-                                processed.lock().unwrap().remove(&path);
-                            }
-                        }
-                    } else {
-                        // Allow later create, modify event to retry
-                        processed.lock().unwrap().remove(&path);
-                    }
-                });
+                let _ = intake_tx.send(path);
             }
         }
         _ => {} // Ignore the other events
