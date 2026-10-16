@@ -1,8 +1,12 @@
 /target
-/target
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
 graphify-out/
 .fastembed_cache/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+.DS_Store
+models/*.gguf

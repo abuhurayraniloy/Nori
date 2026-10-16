@@ -3,6 +3,26 @@ name = "nori"
 version = "0.1.0"
 edition = "2024"
 
+[workspace] 
+resolver = "2"
+members = [
+    ".",
+    "crates/nori-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Abu Hurayra Niloy"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = "0.4"
