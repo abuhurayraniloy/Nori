@@ -1,0 +1,12 @@
+[package]
+name = "nori-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+nori-core = { path = "../nori-core" }
+unicode-normalization = "0.1"
+unicode-segmentation = "1.12"
+regex = "1.10"

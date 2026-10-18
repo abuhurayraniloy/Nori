@@ -10,3 +10,5 @@ Cargo.lock
 *.pdb
 .DS_Store
 models/*.gguf
+.agents/
+.sleepy/

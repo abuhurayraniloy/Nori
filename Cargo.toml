@@ -8,6 +8,7 @@ resolver = "2"
 members = [
     ".",
     "crates/nori-core",
+    "crates/nori-text",
 ]
 
 [workspace.package]

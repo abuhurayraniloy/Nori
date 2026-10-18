@@ -1985,6 +1985,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nori-text"
+version = "0.1.0"
+dependencies = [
+ "nori-core",
+ "regex",
+ "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "notify"
 version = "6.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
