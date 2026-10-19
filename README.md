@@ -1,171 +1,187 @@
-# Nori 🌊
+<p align="center"><img src="docs/logo.png" width="96" alt="Nori logo"></p>
 
-> **The Zero-Cloud, Autonomous Desktop Organizer & Semantic Search Engine.**  
-> *Watches your folder, reads documents & screenshots locally, categorizes and normalizes filenames, and guarantees a 1-click Undo safety net.*
+<h1 align="center">Nori</h1>
+
+<p align="center"><b>Describe it. Dig it up.</b><br>
+Zero-cloud, autonomous desktop organizer and multimodal semantic search engine powered by Google DeepMind's
+<a href="https://huggingface.co/google/embeddinggemma-2">EmbeddingGemma 2</a>.</p>
+
+<p align="center">
+  <a href="#migration-progress-tracker"><b>Migration Tracker</b></a> ·
+  <a href="#what-you-can-find"><b>What You Can Find</b></a> ·
+  <a href="#architecture--how-it-works"><b>Architecture</b></a> ·
+  <a href="#codebase-layout"><b>Codebase</b></a> ·
+  <a href="#getting-started"><b>Getting Started</b></a><br>
+  <sub>Free and open source. 100% local. Everything runs on your computer.</sub>
+</p>
 
 ---
 
 [![Rust 2024](https://img.shields.io/badge/Rust-2024_Edition-orange?logo=rust)](https://www.rust-lang.org/)
-[![Platform Windows](https://img.shields.io/badge/Platform-Windows_10%20%7C%2011-blue?logo=windows)](https://microsoft.com/windows)
-[![Zero Cloud](https://img.shields.io/badge/Privacy-100%25_Local_%2F_Zero_Cloud-success)](#privacy--zero-cloud-guarantee)
+[![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux_%7C_macOS-blue)](https://github.com/ARahim3/nori)
+[![Zero Cloud](https://img.shields.io/badge/Privacy-100%25_Local_%2F_Zero_Cloud-success)](#private--zero-cloud-guarantee)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
 ---
 
-## 💡 The Problem & The Vision
+## 💡 Overview: From DigUp to Nori
 
-Downloads folders inevitably become digital landfills of cryptic filenames like `inv_091823(1).pdf`, unstamped screenshots (`Screenshot 2026-03-14.png`), and forgotten installation packages. Cloud-based organizing tools compromise privacy by uploading personal invoices, tax documents, and medical receipts to external servers.
+**Nori** is the next-generation, high-performance **Rust rewrite** of [DigUp](https://github.com/ARahim3/DigUp).
 
-**Nori** is an ultra-fast, local-first background daemon written in Rust. It quietly monitors your drop folders, waits for downloads to physically complete without freezing on lock-contentions, extracts text from documents and screenshots using native Windows APIs, organizes files cleanly, and provides an instant semantic search engine running sub-20ms queries with zero cloud calls.
+EmbeddingGemma 2 is the multimodal embedding model Google DeepMind released in October 2026. It maps text, images, audio, and video into a single shared 768-dimensional vector space: a photo of a dog on a beach lands next to the words *"a dog on the beach"*, and a recording of someone talking about sleep lands next to *"where they talk about sleep"*. It understands over 100 languages, is open (Apache 2.0), and at 740M parameters it is lean enough to run locally on consumer hardware.
 
----
+### Why rewrite in Rust?
+The original DigUp implementation was split across macOS-specific Swift/SwiftUI and a Tauri/C++ wrapper for Windows and Linux, relying on proprietary Apple Foundation APIs (such as `NSString.range(..., options: [.diacriticInsensitive])` and macOS Vision OCR). 
 
-## ⚡ Key Highlights
-
-- **🛡️ Indestructible Safety Net (1-Click Undo):** Every file movement and renaming operation is recorded as an atomic transaction in an embedded SQLite ledger. If anything is misplaced, one click rolls it back to its original name and location.
-- **👁️ Multi-Modal Local Eyes (Zero-Cloud Vision):**
-  - **PDF Text Extractor:** Extracts text and structural metadata with strict bounds (100 MB limits, page clipping, and `catch_unwind` panic containment).
-  - **Native Windows Media OCR:** Directly taps into the Windows Runtime (`Windows.Media.Ocr`) to extract text from screenshots and photos in under 50 ms with zero external cloud dependencies.
-- **⏱️ Download Debounce & Quiescence Engine:**
-  - Automatically suppresses transient browser download stubs (`.crdownload`, `.part`, `.tmp`).
-  - Multi-sample size stability observation ensures the transfer has finished growing.
-  - Windows-native `share_mode(0)` (`FILE_SHARE_NONE`) verification guarantees the writing process (Chrome, Edge, Explorer) has released all OS file handles.
-- **🧵 Non-Blocking Concurrency:** The primary filesystem event loop runs on sub-millisecond execution times, dispatching file stabilization and parsing tasks to background workers while preventing duplicate concurrent processing with an `Arc<Mutex<HashSet<PathBuf>>>` registry.
-- **🔍 Instant Semantic Vector Search:**
-  - Employs local ONNX embedding models via `fastembed` (`AllMiniLML6V2` with 768 dimensions).
-  - Uses zero-copy binary serialization with `bytemuck` to store raw `BLOB` vectors in SQLite.
-  - Performs sub-20ms cosine similarity scans directly on CPU SIMD instructions.
+**Nori replaces this entire heterogeneous stack with a modular, memory-safe, pure-Rust workspace:**
+- **Zero OS Lock-In:** Pure-Rust Unicode NFKD diacritic folding and UAX #29 grapheme segmentation replace Apple's Foundation framework.
+- **Multilingual Script Precision:** Native script health validators and inflection-aware prefix matchers for Indic (Bengali, Hindi) and Arabic scripts.
+- **Extreme Performance:** Zero-copy SIMD vector math (FP16 storage with FP32 unrolled dot products), memory-mapped vector caches, and embedded SQLite with FTS5.
+- **Autonomous File Management:** Combines semantic search with download-folder debounce, file stabilization, atomic organization, and a 1-click Undo safety ledger.
 
 ---
 
-## 🏗️ Architecture & Processing Pipeline
+## 🗺️ Migration Progress Tracker
+
+This table tracks the porting of DigUp's Swift/Tauri codebase to the modular Nori Rust workspace.
+
+| Component / Subsystem | Original DigUp (Swift / Tauri) | Nori Rust Implementation | Status | Notes |
+|---|---|---|:---:|---|
+| **Core Domain & Types** | `Types.swift`, `FileRecord`, `SegmentKind` | `crates/nori-core/src/types.rs` | ✅ Done | Full enum definitions (`FileKind`, `SegmentKind`, `Modality`), `FileRecord`, `SegmentRecord`, `Candidate`. |
+| **Model Manifest & Paths** | `ModelFiles.swift`, `AppPaths.swift` | `crates/nori-core/src/media_files.rs` | ✅ Done | Cross-platform paths (`%LOCALAPPDATA%`, `Application Support`, `XDG`), HF Hub cache resolver, streaming SHA-256 verifier. |
+| **Prompt Formatters** | `Prompts.swift`, `CodeQuery.swift` | `crates/nori-core/src/prompts.rs` | ✅ Done | DeepMind task prompts (`search result`, `code retrieval`), `code:` query parser. |
+| **SIMD Vector Math** | Swift Accelerate / BLAS vDSP | `crates/nori-core/src/vectors.rs` | ✅ Done | 768-dim FP16 conversion (`half`), unrolled 8-way SIMD dot product, mmap scratch block storage. |
+| **Lexical Normalization** | `SearchText.swift` (NFKC + diacritics) | `crates/nori-text/src/normalize.rs` | ✅ Done | NFKD + selective Latin diacritic stripping (preserving Indic vowels & nuktas), Arabic alef/tatweel normalization, natural language detector (`has_words`). |
+| **Script Repair & Diagnostics** | `PageTextProblem.swift` | `crates/nori-text/src/script.rs` | ✅ Done | Detects reversed Bengali matras/rephs, broken Arabic letter isolation, and abbreviations. |
+| **Exact & Inflected Matching** | `SearchText.matches` (.diacriticInsensitive) | `crates/nori-text/src/matches.rs` | ✅ Done | Grapheme-aware cluster boundaries (`unicode-segmentation`), Arabic & Bengali inflected suffix swallow, verbatim byte range mapping. |
+| **Keyword Snippet Extractor** | `SearchText.snippet` | `crates/nori-text/src/snippet.rs` | ✅ Done | Highlighting snippets with sentence boundary awareness and match range preservation. |
+| **Storage & SQLite Schema** | SQLite3 + `fts5` keyword index | `crates/nori-storage` & `src/db.rs` | 🟡 In Progress | Modularizing schema (`files`, `segments`, `fts_segments`, `transactions`), zero-copy `bytemuck` BLOBs. |
+| **Download Quiescence & Watcher** | macOS FSEvents / Tauri notify | `src/watcher.rs`, `src/debounce.rs` | ✅ Done | Multi-sample size stability, temporary extension filtering (`.crdownload`, `.part`), Windows `share_mode(0)` handle verification. |
+| **PDF Text Extractor** | PDFKit (Mac) / PDFium (Win/Lin) | `src/extractors/pdf.rs` | 🟡 In Progress | Basic text layer extraction with panic isolation working; scan-to-image pipeline being ported. |
+| **OCR (Screenshots & Images)** | Apple Vision framework | `src/extractors/ocr.rs` | 🟡 In Progress | Native Windows `Windows.Media.Ocr` (WinRT) implemented (<50ms, zero-cloud); cross-platform fallback planned. |
+| **Audio & Video Windowing** | AVFoundation / FFmpeg | `src/extractors/` | ⚪ Planned | 30s overlapping audio windows and video shot-boundary keyframe extraction. |
+| **Model Inference Engine** | `llama.cpp` C++ helper process | `crates/nori-engine` | ⚪ Planned | EmbeddingGemma 2 740M GGUF runner (Metal / Vulkan / CPU via llama-cpp bindings or ONNX). |
+| **Desktop Shell & System Tray** | SwiftUI (Mac) / Tauri v1 (Win/Lin) | `crates/nori-app` / Tauri v2 | ⚪ Planned | Global search overlay (`Ctrl+Shift+Space` / `Alt+Space`), result navigation, deep file openers. |
+
+---
+
+## 🔍 What You Can Find
+
+- **"zebra in a video"** opens the clip at the exact moment the zebra appears.
+- **"where they talk about sleep"** jumps to that exact minute of a podcast.
+- **"the clause about pets in the lease"** shows the PDF page.
+- **"a dog on the beach"** finds the photo, and **"payment declined error"** locates the screenshot.
+- A search in English can find a note written in Bengali, Arabic, or any of the model's 100+ languages, and vice versa.
+- **`code: retry a failed call with backoff`** finds the function in your projects, opening directly at the definition line.
+
+Exact words count too. Invoice numbers, error codes, and names are matched as written in filenames and document text via SQLite FTS5, providing a hybrid score combining semantic vectors with exact lexical boosts.
+
+---
+
+## 🔒 Private & Zero-Cloud Guarantee
+
+Everything you index stays on your machine. Nori makes no outbound network connections during operation, collects no telemetry, and requires no accounts. It connects to the network only if you explicitly permit it to download the EmbeddingGemma 2 weights (865 MB) once upon initial setup.
+
+---
+
+## ⌨️ Shortcuts & Desktop Integration
+
+| macOS | Windows & Linux | Action |
+|:---:|:---:|---|
+| **⇧⌘Space** | **Ctrl+Shift+Space** | Opens the instant search panel from any app |
+| **↓ ↑** | **↓ ↑** | Navigate search results |
+| **↩** | **Enter** | Opens result: PDF at the page, audio/video at the moment, code at the line |
+| **Space** | **Space** | Quick preview at the matched page or timestamp |
+| **⌘↩** | **Ctrl+Enter** | Reveal file in Finder, File Explorer, or file manager |
+| **⌘C** | **Ctrl+C** | Copy file to clipboard |
+| **⌘O** | **Ctrl+O** | Expand into full workspace window with picture grid and metadata filters |
+
+---
+
+## 📂 What Nori Reads
+
+Only the folders you specify:
+
+- **Pictures & Screenshots:** JPEG, PNG, HEIC, WebP, etc., by visual semantics and on-device OCR.
+- **PDFs:** Page by page, including scanned documents. Long documents get the first 30 pages immediately, indexing remaining pages in the background (up to 5,000 pages per file).
+- **Documents:** `txt`, `md`, `rtf`, `docx`, `odt`, `html`. Numeric tables and raw CSV dumps are filtered to prevent wasting vector capacity.
+- **Audio:** Overlapping 30-second windows with timestamp jumping.
+- **Video:** Frame extraction per shot boundary plus audio soundtrack embedding.
+- **Code Projects:** Reads source code, notebooks, and markdown docs when code search is enabled. Automatically respects `.gitignore`, skips vendor folders, binaries, and keys/secrets.
+
+---
+
+## 🏗️ Architecture & How It Works
+
+```
+your folders ─► Non-blocking Watcher & Quiescence Debounce
+             ─► Multi-modal Readers (PDF, OCR, Audio, Video, Code)
+             ─► DeepMind EmbeddingGemma 2 (740M Q8_0 GGUF on GPU/CPU)
+             ─► SQLite Storage: 768-dim FP16 Vector BLOBs + FTS5 Keyword Index
+your query   ─► nori-text Normalizer ─► Query Vector + Exact Matcher ─► Ranked Results (<20ms)
+```
 
 ```mermaid
 flowchart TD
     subgraph S1 ["1. Watcher & Ingestion"]
-        A["File Event (Create / Modify)"] --> B["Non-blocking Watcher Loop"]
-        B --> C{"Is file & not already in-flight?"}
-        C -- No --> D["Skip Event"]
-        C -- Yes --> E["Claim in In-Flight Set"]
-        E --> F["Spawn Worker Thread"]
+        A["File Event (Create / Modify)"] --> B["Non-blocking Event Loop"]
+        B --> C{"Is file stable & uninhibited?"}
+        C -- No --> D["Debounce & Wait for Quiescence"]
+        C -- Yes --> E["Multi-Modal Router"]
     end
 
-    subgraph S2 ["2. Quiescence & Validation"]
-        F --> G["Observe Size Stability (debounce.rs)"]
-        G --> H{"Stable size & share_mode(0) lock free?"}
-        H -- No / Timed out --> I["Release from In-Flight Set (Allow Retry)"]
-        H -- Yes --> J["Extension Sorter & Multi-Modal Router"]
+    subgraph S2 ["2. Extraction & Normalization"]
+        E --> F1["PDF Extractor (pdf.rs)"]
+        E --> F2["Windows Media OCR (ocr.rs)"]
+        E --> F3["Audio / Video Keyframe Slicer"]
+        F1 & F2 & F3 --> G["nori-text Normalizer & Script Repair"]
     end
 
-    subgraph S3 ["3. Organization & Text Extraction"]
-        J --> K["Relocate File to Organized/<Category>/"]
-        K --> L{"Is Text Extractable?"}
-        L -- PDF --> M1["PDF Extractor (extractors/pdf.rs)"]
-        L -- Images --> M2["Windows Media OCR (extractors/ocr.rs)"]
-        M1 & M2 --> N["Paragraph Chunker (512 char windows)"]
+    subgraph S3 ["3. Embeddings & Storage"]
+        G --> H["EmbeddingGemma 2 (768-dim)"]
+        H --> I["Zero-Copy SIMD FP16 Vectors (nori-core)"]
+        I --> J["SQLite `segments` BLOB + FTS5 Index"]
     end
 
-    subgraph S4 ["4. Vector Embeddings & Storage"]
-        N --> O["AllMiniLML6V2 (fastembed)"]
-        O --> P["Zero-Copy bytemuck Serialization"]
-        P --> Q["Atomic Batch Insert into SQLite document_chunks"]
-    end
-
-    subgraph S5 ["5. User Interface & Search"]
-        R["User Query: cargo run -- search <query>"] --> S["Vectorize Query Text"]
-        S --> T["Cosine Similarity Scan (SQLite BLOBs)"]
-        T --> U["Ranked Top-K Snippets & File Paths (< 20ms)"]
+    subgraph S4 ["4. Hybrid Query Retrieval"]
+        K["User Query"] --> L["Vectorize (Task Prompt)"]
+        K --> M["FTS5 Exact & Inflected Suffix Match"]
+        L & M --> N["Cosine Similarity Scan + Lexical Boost"]
+        N --> O["Ranked Top-K Candidates (<20ms)"]
     end
 ```
 
 ---
 
-## 🗺️ Project Roadmap & Milestones
-
-This project follows an anti-burnout granular implementation structure:
-
-### Phase 1: The Watcher Foundation
-- [x] **Task 1.1: Rust CLI & SQLite Schema** — Embedded database initialization with `files` and `transactions` tables.
-- [x] **Task 1.2: Raw Directory Watcher** — Non-blocking filesystem event listener powered by `notify`.
-- [x] **Task 1.3: Download Debounce Engine** — Multi-sample size stabilization, browser extension filtering, and Windows `share_mode(0)` verification with comprehensive unit tests.
-
-### Phase 2: The Multi-Modal Eyes
-- [x] **Task 2.1: PDF Header & Text Extractor** — Memory-bounded PDF reader with password handling, page limits, and panic containment (`extractors/pdf.rs`).
-- [x] **Task 2.2: Native Windows Media OCR** — Zero-cloud image text extraction using native `Windows.Media.Ocr` (`extractors/ocr.rs`).
-- [x] **Task 2.3: Multi-Modal Extraction Router** — Unified dispatcher (`extractors/mod.rs`) mapping file formats to appropriate extractors.
-
-### Phase 3: The Smart Janitor & Safety Net
-- [x] **Task 3.1: Extension-Based Media Categorizer** — Clean relocation into `Documents`, `Images`, `Audio`, `Video`, `Archives`, `Installers`, `Code`, and `Other` (`media.rs`).
-- [ ] **Task 3.2: Normalized Filename Builder** — Automated naming convention (`YYYY-MM-DD_<Vendor>_<Title>.<ext>`) with Windows path sanitization.
-- [ ] **Task 3.3: Safe Mover & 1-Click Undo Ledger** — Atomic filesystem relocation with rollback tracking.
-
-### Phase 4: Instant Search & Memory
-- [x] **Task 4.1: Paragraph Chunking Engine** — Semantic paragraph-boundary text segmentation with zero word slicing.
-- [x] **Task 4.2: Local ONNX Vector Embeddings** — `AllMiniLML6V2` local model generating 768-dimensional vectors via `fastembed`.
-- [x] **Task 4.3: Binary Vector SQLite Storage** — Zero-copy `bytemuck` slice casting with single-transaction prepared statements and B-Tree indexing.
-- [x] **Task 4.4: Sub-20ms Semantic Search** — High-performance cosine similarity ranking directly over SQLite `BLOB` records.
-
-### Phase 5: The Sleek Desktop Shell
-- [ ] **Task 5.1: Tauri v2 System Tray** — Minimalist system tray daemon with quick actions.
-- [ ] **Task 5.2: Spotlight Launcher (`Alt + Space`)** — Centered, translucent Raycast-style instant search overlay.
-- [ ] **Task 5.3: End-to-End Polish & Chaos Testing** — Bulk download stress-testing and distribution builds.
-
----
-
-## 📂 Codebase Layout
+## 📦 Codebase Layout
 
 ```text
 nori/
-├── Cargo.toml               # Crate dependencies & metadata (Rust 2024 Edition)
-├── README.md                # Project documentation & architectural specification
-├── nori.db                  # Local SQLite database (git-ignored)
-└── src/
-    ├── main.rs              # CLI command router (watch / search) & app bootstrap
-    ├── watcher.rs           # Filesystem event loop & background task dispatcher
-    ├── debounce.rs          # Quiescence polling, share_mode checks & unit tests
-    ├── media.rs             # Extension categorization & collision-safe destinations
-    ├── indexer.rs           # Paragraph chunker, FastEmbed ONNX engine & semantic search
-    ├── db.rs                # SQLite schema setup, document_chunks table & test helper
-    └── extractors/          # Multi-modal extraction engine
-        ├── mod.rs           # Extractor router, error taxonomy & safety guards
-        ├── pdf.rs           # PDF text extractor with panic isolation
-        └── ocr.rs           # Native Windows Media OCR engine (WinRT)
+├── Cargo.toml                       # Workspace manifest (Rust 2024 Edition)
+├── README.md                        # Documentation & migration roadmap
+├── crates/
+│   ├── nori-core/                   # Core types, vector math, model manifests
+│   │   ├── src/types.rs             # FileKind, SegmentKind, Candidate, Modality
+│   │   ├── src/vectors.rs           # 768-dim FP16/FP32 SIMD dot products & mmap storage
+│   │   ├── src/prompts.rs           # EmbeddingGemma 2 task prompt formatters
+│   │   └── src/media_files.rs       # Cross-platform paths & GGUF SHA-256 verifier
+│   ├── nori-text/                   # Unicode normalization, script health, matches
+│   │   ├── src/normalize.rs         # NFKD diacritic folding, Indic/Arabic normalization
+│   │   ├── src/matches.rs           # Grapheme-aware word boundary & suffix swallow matching
+│   │   ├── src/script.rs            # Bengali glyph order & Arabic lost letters detector
+│   │   └── src/snippet.rs           # Contextual keyword snippet generator
+│   └── nori-storage/                # SQLite connection, FTS5, and vector tables
+├── src/                             # Ingestion engine & CLI daemon
+│   ├── main.rs                      # CLI entry point (watch, search, organize)
+│   ├── watcher.rs                   # Non-blocking filesystem event loop
+│   ├── debounce.rs                  # File size stabilization & handle lock checking
+│   ├── media.rs                     # Media categorization & file relocation
+│   ├── db.rs                        # SQLite database operations & document chunks
+│   └── extractors/                  # Multi-modal extraction modules
+│       ├── mod.rs                   # Extractor dispatcher
+│       ├── pdf.rs                   # Memory-bounded PDF reader
+│       └── ocr.rs                   # Native Windows Media OCR engine
 ```
-
----
-
-## 🗄️ Database Schema
-
-Nori relies on embedded SQLite to ensure persistent, verifiable state:
-
-### Table: `document_chunks`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` | Unique chunk record ID |
-| `file_path` | `TEXT` | `NOT NULL` | Absolute target file path |
-| `chunk_index` | `INTEGER` | `NOT NULL` | Chronological paragraph order |
-| `chunk_text` | `TEXT` | `NOT NULL` | Extracted human-readable paragraph text |
-| `embedding` | `BLOB` | `NOT NULL` | 3,072-byte raw binary vector (768 32-bit floats) |
-
-*Indexed on `file_path` via `idx_chunks_file_path` for instant idempotent updates.*
-
-### Table: `files`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `TEXT` | `PRIMARY KEY` | Unique document ID (UUIDv4) |
-| `current_path` | `TEXT` | `NOT NULL` | Current path on disk |
-| `original_path` | `TEXT` | `NOT NULL` | Original path where file landed |
-| `filename` | `TEXT` | `NOT NULL` | Normalized filename |
-| `created_at` | `DATETIME`| `NOT NULL` | Timestamp of ingestion |
-
-### Table: `transactions`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `transaction_id` | `TEXT` | `PRIMARY KEY` | Unique transaction ID (UUIDv4) |
-| `source_path` | `TEXT` | `NOT NULL` | Pre-move file location |
-| `destination_path`| `TEXT` | `NOT NULL` | Post-move file location |
-| `timestamp` | `DATETIME`| `NOT NULL` | Operation timestamp |
-| `is_reverted` | `INTEGER`| `DEFAULT 0` | Reversion state (`0` = active, `1` = reverted) |
 
 ---
 
@@ -173,52 +189,44 @@ Nori relies on embedded SQLite to ensure persistent, verifiable state:
 
 ### Prerequisites
 
-- **Operating System:** Windows 10 or 11 (64-bit)
-- **Rust Toolchain:** Rust compiler supporting the **2024 Edition** (`rustc 1.85+`)
-- **C Compiler Tools:** Visual Studio C++ Build Tools or Windows SDK (for bundled SQLite compilation)
+- **Rust Toolchain:** Rust compiler supporting the **2024 Edition** (`rustc 1.85+`).
+- **C/C++ Build Tools:** Visual Studio C++ Build Tools (Windows) or `build-essential` (Linux) for bundled SQLite compilation.
 
-### Build & Run
+### Build and Test
 
 1. **Clone the repository:**
    ```powershell
-   git clone https://github.com/your-username/nori.git
+   git clone https://github.com/ARahim3/nori.git
    cd nori
    ```
 
-2. **Run tests & benchmarks:**
+2. **Run tests across workspace crates:**
    ```powershell
-   # Run all unit tests
-   cargo test
+   # Test text normalization and script repair
+   cargo test -p nori-text
 
-   # Run semantic search benchmark with release SIMD optimizations
-   cargo test benchmark_search_latency --release -- --nocapture
+   # Test core vector SIMD math and model manifest
+   cargo test -p nori-core
+
+   # Test full workspace
+   cargo test --workspace
    ```
 
-3. **Start the background file organizer & watcher:**
+3. **Start the watcher daemon:**
    ```powershell
    cargo run -- watch
    ```
-   *Any file or PDF dropped into `Downloads/` will be organized into `Organized/` and automatically indexed in the background.*
 
-4. **Search your documents by concept/meaning (Semantic Search):**
+4. **Search files locally:**
    ```powershell
-   cargo run -- search "machine learning deployment and model evaluation"
+   cargo run -- search "machine learning evaluation metrics"
    ```
-
-5. **Build release binary:**
-   ```powershell
-   cargo build --release
-   ```
-   The binary will be compiled to `target\release\nori.exe`.
 
 ---
 
-## 🔒 Privacy & Zero-Cloud Guarantee
+## ⚖️ License & Attribution
 
-All data processed by Nori—including database indices, PDF contents, OCR text, and semantic vectors—**remains strictly on your local machine**. Nori does not make network calls, does not transmit telemetry, and requires no external API keys or cloud accounts.
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
+- Nori is licensed under the [MIT License](LICENSE).
+- Powered by [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) by Google DeepMind (Apache 2.0).
+- Inspired by and migrating from [DigUp](https://github.com/ARahim3/DigUp).
+- *Disclaimer:* Nori is not affiliated with Google, Apple, or Microsoft. Gemma is a trademark of Google LLC; Mac is a trademark of Apple Inc.; Windows is a trademark of Microsoft Corporation.
