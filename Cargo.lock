@@ -1985,6 +1985,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nori-storage"
+version = "0.1.0"
+dependencies = [
+ "nori-core",
+ "nori-text",
+ "rusqlite",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "nori-text"
 version = "0.1.0"
 dependencies = [
