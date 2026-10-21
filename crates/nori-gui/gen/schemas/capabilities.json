@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"The panel's, the window's, setup's, settings' and code folders' pages: Tauri's core (events, the asset URLs, paths). Their commands are the shell's.","local":true,"windows":["panel","panel-centered","main","setup","settings","code-folders"],"permissions":["core:default"]}}

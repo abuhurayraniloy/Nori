@@ -1,0 +1,24 @@
+[project]
+name = "nori-worker"
+version = "0.1.0"
+description = "Nori's embedding worker: EmbeddingGemma 2 on MLX or PyTorch over stdin/stdout"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface-hub>=1.33",
+    "numpy>=2.0",
+    "pillow>=10.0",
+    "transformers>=4.45",
+]
+
+[project.optional-dependencies]
+mlx = [
+    "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm@fec3f50379bb2cb0760ef3c8a68ebce9585e4d97",
+    "mlx>=0.22",
+]
+torch = [
+    "torch>=2.2",
+    "accelerate>=0.28",
+]
+
+[tool.uv]
+package = false

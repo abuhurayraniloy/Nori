@@ -13,7 +13,7 @@ recording of someone talking about sleep lands next to "where they talk about sl
 languages, it's open (Apache 2.0), and at 740M parameters it's small enough to run on a laptop.
 
 **Nori** brings that to the files on your computer, on Windows, macOS, or Linux. It is a ground-up **Rust rewrite**
-of [DigUp](https://github.com/ARahim3/DigUp), replacing the original split Swift/Tauri architecture with a unified,
+replacing the original split architecture with a unified,
 modular, memory-safe Rust workspace.
 
 Pick the folders to search, and Nori reads the pictures, PDFs, documents, recordings, videos and code projects in them.
@@ -23,13 +23,13 @@ Then describe what you're looking for, in your own words, and it finds the match
 
 ## 🚦 Migration Progress Tracker
 
-Nori is actively migrating DigUp's original Swift engine and Tauri wrapper into a modular, high-performance Rust workspace.
+Nori is a modular, high-performance local AI semantic and full-text search engine written in Rust.
 
 ```
-DigUp (Swift / SwiftUI / Tauri / C++) ──► Nori (Modular Rust Workspace 2024 Edition)
+Nori (Modular Rust Workspace 2024 Edition)
 ```
 
-| Subsystem / Crate | DigUp Source (Swift/C++) | Target Rust Architecture | Status | Highlights & Parity Details |
+| Subsystem / Crate | Specification Reference | Target Rust Architecture | Status | Highlights & Parity Details |
 |---|---|---|:---:|---|
 | **Core Domain Types** | `Types.swift` | `crates/nori-core/src/types.rs` | 🟢 Done | `FileKind`, `SegmentKind`, `Modality`, `Candidate`, `FileRecord`, `SegmentRecord` with serde serialization. |
 | **Model Manifest & Paths** | `ModelFiles.swift`, `AppPaths.swift` | `crates/nori-core/src/media_files.rs` | 🟢 Done | Cross-platform data paths (`LOCALAPPDATA`, `XDG`, `Application Support`), HF Hub cache resolver, streaming SHA-256 verifier. |
@@ -165,7 +165,7 @@ The text processing pipeline is built in pure Rust (`crates/nori-text`):
 
 ```sh
 # Clone the repository
-git clone https://github.com/ARahim3/nori && cd nori
+git clone https://github.com/nori/nori && cd nori
 
 # Run all unit tests across the workspace
 cargo test --workspace
@@ -202,7 +202,7 @@ matching supports Latin, Arabic, Indic (Bengali, Devanagari), and other alphabet
 ## Thanks
 
 Nori is built on [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) by Google DeepMind (Apache 2.0)
-and [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT). Inspired by [DigUp](https://github.com/ARahim3/DigUp).
+and [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT).
 
 Nori isn't affiliated with Google, Apple or Microsoft. Gemma is a trademark of Google LLC; Mac and Spotlight are
 trademarks of Apple Inc.; Windows is a trademark of Microsoft Corporation.

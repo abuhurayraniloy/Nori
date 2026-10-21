@@ -1,0 +1,20 @@
+[package]
+name = "nori-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+nori-core = { path = "../nori-core" }
+nori-storage = { path = "../nori-storage" }
+nori-text = { path = "../nori-text" }
+nori-extract = { path = "../nori-extract" }
+nori-infer = { path = "../nori-infer" }
+nori-search = { path = "../nori-search" }
+nori-crawl = { path = "../nori-crawl" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+uuid = { version = "1.4", features = ["v4"] }

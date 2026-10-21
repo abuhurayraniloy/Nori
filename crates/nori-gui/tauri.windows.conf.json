@@ -1,0 +1,10 @@
+{
+  "mainBinaryName": "nori-gui",
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

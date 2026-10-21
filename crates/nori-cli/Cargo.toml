@@ -1,0 +1,46 @@
+[package]
+name = "nori-cli"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Abu Hurayra Niloy"]
+description = "Command-line interface and background JSON-lines helper service for Nori"
+
+[lib]
+name = "nori_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nori"
+path = "src/main.rs"
+
+[dependencies]
+nori-core = { path = "../nori-core" }
+nori-storage = { path = "../nori-storage" }
+nori-text = { path = "../nori-text" }
+nori-extract = { path = "../nori-extract" }
+nori-infer = { path = "../nori-infer" }
+nori-search = { path = "../nori-search" }
+nori-crawl = { path = "../nori-crawl" }
+nori-index = { path = "../nori-index" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "blocking"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation"
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+

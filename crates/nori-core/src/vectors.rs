@@ -131,9 +131,26 @@ impl VectorStorage {
 
     /// Mutable access to fill stored f16 vectors.
     pub fn haves_mut(&mut self) -> &mut [f16] {
-        let total_elements = self.rows * self::VECTOR_DIMENSION;
+        self.halves_mut()
+    }
+
+    /// Mutable access to fill stored f16 vectors.
+    pub fn halves_mut(&mut self) -> &mut [f16] {
+        let total_elements = self.rows * VECTOR_DIMENSION;
         unsafe {
             std::slice::from_raw_parts_mut(self.mmap.as_mut_ptr() as *mut f16, total_elements)
+        }
+    }
+
+    /// Copies raw little-endian f16 bytes for a row directly into the mmap buffer.
+    pub fn copy_row_bytes(&mut self, row_index: usize, bytes: &[u8]) {
+        let offset = row_index * VECTOR_DIMENSION * std::mem::size_of::<f16>();
+        let len = bytes
+            .len()
+            .min(VECTOR_DIMENSION * std::mem::size_of::<f16>());
+        unsafe {
+            let ptr = self.mmap.as_mut_ptr().add(offset);
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
         }
     }
 
@@ -144,6 +161,30 @@ impl VectorStorage {
             let ptr = self.mmap.as_mut_ptr().add(self.block_offset) as *mut f32;
             std::slice::from_raw_parts_mut(ptr, total_elements)
         }
+    }
+
+    /// Decompresses `count` rows of f16 vectors starting at `row_start` into the scratch block and scores them against `query`.
+    pub fn score_batch(
+        &mut self,
+        row_start: usize,
+        count: usize,
+        query: &[f32],
+        scores_out: &mut [f32],
+    ) {
+        let total_floats = count * VECTOR_DIMENSION;
+        let halves_ptr = self.mmap.as_ptr() as *const f16;
+        let scratch_ptr = unsafe { self.mmap.as_mut_ptr().add(self.block_offset) as *mut f32 };
+
+        let halves_slice = unsafe {
+            std::slice::from_raw_parts(
+                halves_ptr.add(row_start * VECTOR_DIMENSION),
+                total_floats,
+            )
+        };
+        let scratch_slice = unsafe { std::slice::from_raw_parts_mut(scratch_ptr, total_floats) };
+
+        Vectors::convert_halves_to_floats(halves_slice, scratch_slice);
+        Vectors::scores(scratch_slice, query, &mut scores_out[..count]);
     }
 }
 

@@ -1,9 +1,20 @@
 use crate::connection::{Database, StorageError};
 use crate::schema::Schema;
-use nori_core::{FileKind, FileRecord, Modality, SegmentKind, Vectors};
+pub use nori_core::types::FileRecord;
+use nori_core::{FileKind, Modality, SegmentKind, Vectors};
 use nori_text::SearchText;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// File count statistics across various states.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreCounts {
+    pub files: u64,
+    pub searchable: u64,
+    pub pending: u64,
+    pub unfinished: u64,
+}
 
 pub struct IndexStore {
     db: Database,
@@ -32,6 +43,28 @@ impl IndexStore {
     #[inline]
     pub fn db_mut(&mut self) -> &mut Database {
         &mut self.db
+    }
+
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>, StorageError> {
+        Schema::get_meta(&self.db, key)
+    }
+
+    pub fn set_meta(&mut self, key: &str, value: Option<&str>) -> Result<(), StorageError> {
+        Schema::set_meta(&self.db, key, value)
+    }
+
+    /// Returns the highest `loc` stored for segments of `file_id`.
+    pub fn last_place_of(&self, file_id: i64) -> Result<Option<usize>, StorageError> {
+        let mut stmt = self.db.raw().prepare_cached(
+            "SELECT max(loc) FROM segments WHERE file = ?;"
+        )?;
+        let mut rows = stmt.query([file_id])?;
+        if let Some(row) = rows.next()? {
+            let max_loc: Option<f64> = row.get(0)?;
+            Ok(max_loc.map(|l| l as usize))
+        } else {
+            Ok(None)
+        }
     }
 
     // MARK: - File Operations
@@ -247,6 +280,34 @@ impl IndexStore {
             |row| row.get(0),
         )?;
         Ok(count as usize)
+    }
+
+    /// Aggregate counts for files across all indexing states.
+    pub fn counts(&self) -> Result<StoreCounts, StorageError> {
+        let conn = self.db.raw();
+        let files: i64 = conn.query_row("SELECT COUNT(*) FROM files;", [], |row| row.get(0)).unwrap_or(0);
+        let searchable: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE state IN ('done', 'partial');",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        let pending: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE state = 'pending';",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        let unfinished: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE state = 'partial';",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        Ok(StoreCounts {
+            files: files as u64,
+            searchable: searchable as u64,
+            pending: pending as u64,
+            unfinished: unfinished as u64,
+        })
     }
 
     // MARK: - Segment Operations

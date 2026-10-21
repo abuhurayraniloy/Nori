@@ -1,0 +1,18 @@
+[package]
+name = "nori-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+nori-core = { path = "../nori-core" }
+nori-storage = { path = "../nori-storage" }
+nori-text = { path = "../nori-text" }
+nori-infer = { path = "../nori-infer" }
+nori-extract = { path = "../nori-extract" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+half = { version = "2.4", features = ["bytemuck"] }
